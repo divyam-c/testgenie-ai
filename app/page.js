@@ -1,13 +1,26 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import * as XLSX from "xlsx";
 
 export default function Home() {
   const [input, setInput] = useState("");
   const [result, setResult] = useState("");
   const [loading, setLoading] = useState(false);
-  const [module, setModule] = useState("Authentication");
+  const [module, setModule] = useState("");
   const [priority, setPriority] = useState("Medium");
+  const [darkMode, setDarkMode] = useState(false);
+  const [history, setHistory] = useState([]);
+
+  useEffect(() => {
+    const saved = localStorage.getItem("history");
+    if (saved) setHistory(JSON.parse(saved));
+  }, []);
+
+  const saveToHistory = (input, result) => {
+    const newHistory = [{ input, result }, ...history];
+    setHistory(newHistory);
+    localStorage.setItem("history", JSON.stringify(newHistory));
+  };
 
   const generateTestCases = async () => {
     if (!input) return alert("Please enter requirement");
@@ -22,155 +35,196 @@ export default function Home() {
 
       const data = await res.json();
       setResult(data.result);
+      saveToHistory(input, data.result);
     } catch (error) {
-      console.error(error);
-      alert("Something went wrong");
+      alert("Error generating test cases");
     }
 
     setLoading(false);
   };
 
-  // ✅ Excel Download (with safety check)
-  const downloadExcel = () => {
-    if (!result) {
-      alert("Please generate test cases first");
-      return;
-    }
+  const parseTestCases = () => {
+    if (!result) return [];
 
     const testCases = result.split("Test Case ID:").slice(1);
 
-    const data = testCases.map((tc, index) => {
+    return testCases.map((tc, index) => {
       const lines = tc.split("\n").filter(l => l.trim() !== "");
 
-      const id = "TC" + String(index + 1).padStart(3, "0");
-      const title = lines.find(l => l.includes("Title"))?.split(":")[1]?.trim() || "";
-      const steps = lines.filter(l => l.match(/^\d+\./)).join(" ");
-      const expected = lines.find(l => l.includes("Expected"))?.split(":")[1]?.trim() || "";
-      const type = lines.find(l => l.includes("Type"))?.split(":")[1]?.trim() || "";
-
       return {
-        "Test Case ID": id,
-        Module: module,
-        Title: title,
-        Preconditions: "User is on the application",
-        Steps: steps,
-        "Expected Result": expected,
-        "Actual Result": "",
-        Status: "",
-        Remarks: "",
-        Type: type,
-        Priority: type === "Negative" ? "High" : priority,
+        id: "TC" + String(index + 1).padStart(3, "0"),
+        title: lines.find(l => l.includes("Title"))?.split(":")[1]?.trim() || "",
+        steps: lines.filter(l => l.match(/^\d+\./)).join(" "),
+        expected: lines.find(l => l.includes("Expected"))?.split(":")[1]?.trim() || "",
+        type: lines.find(l => l.includes("Type"))?.split(":")[1]?.trim() || "",
       };
     });
-
-    const worksheet = XLSX.utils.json_to_sheet(data);
-    const workbook = XLSX.utils.book_new();
-
-    XLSX.utils.book_append_sheet(workbook, worksheet, "TestCases");
-
-    XLSX.writeFile(workbook, "TestCases.xlsx");
   };
 
-  // ✅ Copy Button Function
+  const downloadExcel = () => {
+    if (!result) return alert("Generate test cases first");
+
+    const parsed = parseTestCases();
+
+    const data = parsed.map((tc) => ({
+      "Test Case ID": tc.id,
+      Module: module || "General",
+      Title: tc.title,
+      Preconditions: "User is on the application",
+      Steps: tc.steps,
+      "Expected Result": tc.expected,
+      "Actual Result": "",
+      Status: "",
+      Remarks: "",
+      Type: tc.type,
+      Priority: tc.type === "Negative" ? "High" : priority,
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "TestCases");
+    XLSX.writeFile(wb, "TestCases.xlsx");
+  };
+
   const copyToClipboard = () => {
     if (!result) return;
     navigator.clipboard.writeText(result);
-    alert("Copied to clipboard!");
+    alert("Copied!");
   };
 
+  const theme = darkMode ? "bg-gray-900 text-white" : "bg-gray-100 text-black";
+  const parsedData = parseTestCases();
+
   return (
-    <div className="min-h-screen bg-gray-100 p-10 text-black">
-      <h1 className="text-3xl font-bold mb-2 text-center">
-        TestGenie AI 🪄
-      </h1>
+    <div className={`min-h-screen p-6 ${theme}`}>
+      <div className="max-w-6xl mx-auto">
 
-      <p className="text-center text-gray-600 mb-6">
-        From Idea to Test Cases - Powered by AI Magic ✨
-      </p>
+        {/* Header */}
+        <div className="flex justify-between items-center mb-6">
+          <h1 className="text-3xl font-bold">TestGenie AI 🪄</h1>
 
-      <div className="max-w-2xl mx-auto bg-white p-6 rounded shadow">
+          <button
+            onClick={() => setDarkMode(!darkMode)}
+            className="px-3 py-1 rounded bg-gray-300 text-black"
+          >
+            {darkMode ? "☀️ Light" : "🌙 Dark"}
+          </button>
+        </div>
 
-        {/* Module Input */}
-        <input
-          type="text"
-          placeholder="Enter Module (e.g., Login Functionality)"
-          value={module}
-          onChange={(e) => setModule(e.target.value)}
-          className="w-full border p-3 mb-3 rounded"
-        />
+        <p className="mb-6 text-center">
+          From Idea to Test Cases — Powered by AI Magic ✨
+        </p>
 
-        {/* Priority Dropdown */}
-        <select
-          value={priority}
-          onChange={(e) => setPriority(e.target.value)}
-          className="w-full border p-3 mb-4 rounded"
-        >
-          <option value="High">High Priority</option>
-          <option value="Medium">Medium Priority</option>
-          <option value="Low">Low Priority</option>
-        </select>
+        <div className="bg-white text-black p-6 rounded-xl shadow">
 
-        {/* Requirement Input */}
-        <textarea
-          className="w-full border p-3 mb-4 rounded"
-          rows="5"
-          placeholder="Enter your requirement..."
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-        />
+          <input
+            type="text"
+            placeholder="e.g., Login functionality"
+            value={module}
+            onChange={(e) => setModule(e.target.value)}
+            className="w-full border p-3 mb-3 rounded-lg"
+          />
 
-        {/* Generate Button */}
-        <button
-          onClick={generateTestCases}
-          className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded w-full"
-        >
-          {loading ? "Generating..." : "Generate Test Cases"}
-        </button>
+          <select
+            value={priority}
+            onChange={(e) => setPriority(e.target.value)}
+            className="w-full border p-2 mb-3 rounded"
+          >
+            <option>High</option>
+            <option>Medium</option>
+            <option>Low</option>
+          </select>
 
-        {/* Download Button */}
-        <button
-          onClick={downloadExcel}
-          disabled={!result}
-          className={`px-4 py-2 rounded w-full mt-3 text-white ${
-            result
-              ? "bg-green-500 hover:bg-green-600"
-              : "bg-gray-400 cursor-not-allowed"
-          }`}
-        >
-          {result ? "Download Excel" : "Generate first to download"}
-        </button>
+          <textarea
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            rows="4"
+            placeholder="Enter requirement..."
+            className="w-full border p-2 mb-3 rounded"
+          />
 
-        {/* Copy Button */}
-        <button
-          onClick={copyToClipboard}
-          disabled={!result}
-          className={`px-4 py-2 rounded w-full mt-3 text-white ${
-            result
-              ? "bg-purple-500 hover:bg-purple-600"
-              : "bg-gray-400 cursor-not-allowed"
-          }`}
-        >
-          Copy Test Cases
-        </button>
+          {/* 🔥 BUTTONS */}
+          <div className="flex gap-2">
+            <button
+              onClick={generateTestCases}
+              className="bg-blue-500 text-white px-4 py-2 rounded flex-1 flex items-center justify-center gap-2"
+            >
+              {loading ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  Generating...
+                </>
+              ) : (
+                "Generate"
+              )}
+            </button>
 
-        {/* Output */}
-        {result && (
-          <div className="mt-6 bg-gray-100 p-4 rounded whitespace-pre-wrap">
-            {result
-              .split("\n")
-              .filter(line => line.trim() !== "")
-              .map((line, index) => (
-                <p
-                  key={index}
-                  className={`mb-2 ${
-                    line.includes("Test Case ID") || line.includes("Title")
-                      ? "font-semibold"
-                      : ""
-                  }`}
-                >
-                  {line}
-                </p>
-              ))}
+            <button
+              onClick={downloadExcel}
+              disabled={!result}
+              className={`px-4 py-2 rounded text-white ${
+                result ? "bg-green-500" : "bg-gray-400"
+              }`}
+            >
+              Excel
+            </button>
+
+            <button
+              onClick={copyToClipboard}
+              disabled={!result}
+              className={`px-4 py-2 rounded text-white ${
+                result ? "bg-purple-500" : "bg-gray-400"
+              }`}
+            >
+              Copy
+            </button>
+          </div>
+
+          {/* 🔥 TABLE OUTPUT */}
+          {parsedData.length > 0 && (
+            <div className="mt-6 overflow-auto">
+              <table className="w-full border text-sm">
+                <thead className="bg-gray-200">
+                  <tr>
+                    <th className="border p-2">ID</th>
+                    <th className="border p-2">Title</th>
+                    <th className="border p-2">Steps</th>
+                    <th className="border p-2">Expected</th>
+                    <th className="border p-2">Type</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {parsedData.map((tc, i) => (
+                    <tr key={i}>
+                      <td className="border p-2">{tc.id}</td>
+                      <td className="border p-2">{tc.title}</td>
+                      <td className="border p-2">{tc.steps}</td>
+                      <td className="border p-2">{tc.expected}</td>
+                      <td className="border p-2">{tc.type}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* History */}
+        {history.length > 0 && (
+          <div className="mt-6">
+            <h2 className="font-bold mb-2">History</h2>
+            {history.slice(0, 3).map((item, index) => (
+              <div
+                key={index}
+                className="bg-white text-black p-3 mb-2 rounded shadow cursor-pointer"
+                onClick={() => {
+                  setInput(item.input);
+                  setResult(item.result);
+                }}
+              >
+                {item.input}
+              </div>
+            ))}
           </div>
         )}
       </div>
